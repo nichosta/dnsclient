@@ -2,6 +2,7 @@ package dnsclient
 
 import (
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/miekg/dns"
@@ -16,6 +17,7 @@ type Config struct {
 	Timeout          time.Duration
 	MaxCNAMEs        int
 	DNSSEC           bool
+	Subnet           string
 }
 
 type Client interface {
@@ -73,6 +75,22 @@ func NewMsg(config *Config, name string, qtype uint16) *dns.Msg {
 	m.RecursionDesired = config.RecursionDesired
 	if config.DNSSEC {
 		m.SetEdns0(4096, true)
+	}
+	if config.Subnet != "" {
+		o := &dns.OPT{
+			Hdr: dns.RR_Header{
+				Name:   ".",
+				Rrtype: dns.TypeOPT,
+			},
+		}
+		e := &dns.EDNS0_SUBNET{
+			Code:          dns.EDNS0SUBNET,
+			Address:       net.ParseIP(config.Subnet),
+			Family:        1, // IPv4, assumed
+			SourceNetmask: net.IPv4len * 8,
+		}
+		o.Option = append(o.Option, e)
+		m.Extra = append(m.Extra, o)
 	}
 	// XXX: set other header bits?
 	return m

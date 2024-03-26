@@ -75,6 +75,10 @@ general client options:
     Request DNSSEC records be sent by setting the DNSSEC OK bit (DO) in the OPT
     record in the additional section of the query.
 
+  -subnet
+	Provide information in query about the network which originated the request.
+	If the resolver supports ECS, the response may include a more local address.
+
 
 Do53 client-specific options:
   -tcp
@@ -98,6 +102,7 @@ type Options struct {
 	timeout   time.Duration
 	maxCNAMEs int
 	dnssec    bool
+	subnet    string
 	// do53 client-specific options
 	tcp          bool
 	retryWithTCP bool
@@ -128,6 +133,7 @@ func parseOptions() *Options {
 	flag.DurationVar(&opts.timeout, "timeout", defaults.Timeout, "")
 	flag.IntVar(&opts.maxCNAMEs, "max-cnames", defaults.MaxCNAMEs, "")
 	flag.BoolVar(&opts.dnssec, "dnssec", false, "")
+	flag.StringVar(&opts.subnet, "subnet", "", "")
 	// do53 client-specific options
 	flag.BoolVar(&opts.tcp, "tcp", false, "")
 	flag.BoolVar(&opts.retryWithTCP, "retry-with-tcp", false, "")
@@ -228,6 +234,7 @@ func newClient(opts *Options) dnsclient.Client {
 		Timeout:          opts.timeout,
 		MaxCNAMEs:        opts.maxCNAMEs,
 		DNSSEC:           opts.dnssec,
+		Subnet:           opts.subnet,
 	}
 
 	switch opts.proto {
@@ -311,6 +318,14 @@ func main() {
 		}
 
 		fmt.Printf("%32s: success: %v\n", rec.qname, rec.reply.Answer)
+		if opts.subnet != "" {
+			for _, addl := range rec.reply.Extra[0].(*dns.OPT).Option {
+				subnet_resp, ok := addl.(*dns.EDNS0_SUBNET)
+				if ok {
+					fmt.Printf("%32s: subnet response echo: %s/%d/%d\n", rec.qname, subnet_resp.Address, subnet_resp.SourceNetmask, subnet_resp.SourceScope)
+				}
+			}
+		}
 
 		numJobs += 1
 	}
