@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"log"
@@ -273,6 +274,19 @@ func main() {
 	outch := make(chan *ScanRecord, opts.numWorkers)
 	wg.Add(opts.numWorkers)
 
+	//create output csv
+	file2, err := os.Create("ecs_output.csv")
+	if err != nil {
+		panic(err)
+	}
+	defer file2.Close()
+
+	writer := csv.NewWriter(file2)
+	defer writer.Flush()
+
+	csvheader := []string{"site name", "success", "first rr", "subnet mask"}
+	writer.Write(csvheader)
+
 	for i := 0; i < opts.numWorkers; i++ {
 		// each one of these goroutine is a "worker"
 		go func() {
@@ -314,6 +328,7 @@ func main() {
 	for rec := range outch {
 		if rec.err != nil {
 			fmt.Printf("%32s: request failed: %v\n", rec.qname, rec.err)
+			writer.Write([]string{rec.qname, "false", "", ""})
 			continue
 		}
 
@@ -323,6 +338,8 @@ func main() {
 				subnet_resp, ok := addl.(*dns.EDNS0_SUBNET)
 				if ok {
 					fmt.Printf("%32s: subnet response echo: %s/%d/%d\n", rec.qname, subnet_resp.Address, subnet_resp.SourceNetmask, subnet_resp.SourceScope)
+					fmt.Printf("netmask: " + string(subnet_resp.SourceNetmask))
+					writer.Write([]string{rec.qname, "true", rec.reply.Answer[0].String(), fmt.Sprintf("%d", subnet_resp.SourceScope)})
 				}
 			}
 		}
@@ -331,4 +348,6 @@ func main() {
 	}
 
 	fmt.Printf("processed all %d jobs\n", numJobs)
+	//./dnsscan -server 8.8.8.8 -proto DoT -subnet 128.239.115.200  C:\Users\franc\Downloads\CSCI780_DSS\FinalProject\dnsclient-main\cloudflare-radar-domains-top-1000-20240401-20240408.csv
+	// ./dnsscan -server 8.8.8.8 -subnet 128.239.115.200 cloudflare-radar-domains-top-10000-20240415-20240422.csv
 }
