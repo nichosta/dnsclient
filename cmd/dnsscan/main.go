@@ -306,7 +306,46 @@ func main() {
 			}
 
 			for domainname := range inch {
-				reply, err := dnsclient.Query(c, domainname, opts.qtype)
+				reply, err := dnsclient.Query(c, domainname, 2)
+				if err != nil {
+					log.Printf("failed to query first time: %v \n", err)
+					continue
+				}
+				var nameserver *dns.NS
+				var ok bool
+				for _, record := range reply.Answer {
+					nameserver, ok = record.(*dns.NS)
+					if ok {
+						break
+					}
+				}
+				if !ok {
+					fmt.Printf("didn't get an NS response from %s \n", domainname)
+					continue
+				}
+
+				reply, err = dnsclient.Query(c, nameserver.Ns, 1)
+				if err != nil {
+					log.Printf("failed to query second time: %v", err)
+					continue
+				}
+
+				var altClient dnsclient.Client
+				nsa, ok := reply.Answer[0].(*dns.A)
+				if !ok {
+					fmt.Println("something went wrong getting the A record")
+					continue
+				}
+				opts.server = nsa.A.String() + ":53"
+				altClient = newClient(opts)
+				err = altClient.Dial()
+				if err != nil {
+					log.Printf("failed to connect to second DNS server: %v", err)
+					continue
+				}
+
+				reply, err = dnsclient.Query(altClient, domainname, 1)
+
 				outch <- &ScanRecord{
 					qname: domainname,
 					qtype: opts.qtype,
@@ -333,8 +372,22 @@ func main() {
 		}
 
 		fmt.Printf("%32s: success: %v\n", rec.qname, rec.reply.Answer)
+
 		if opts.subnet != "" {
-			for _, addl := range rec.reply.Extra[0].(*dns.OPT).Option {
+			var opt *dns.OPT
+			var ok bool
+			for _, record := range rec.reply.Extra {
+				opt, ok = record.(*dns.OPT)
+				if ok {
+					break
+				}
+			}
+			if !ok {
+				fmt.Printf("didn't get an OPT response from somebody, somehow\n")
+				continue
+			}
+
+			for _, addl := range opt.Option {
 				subnet_resp, ok := addl.(*dns.EDNS0_SUBNET)
 				if ok {
 					fmt.Printf("%32s: subnet response echo: %s/%d/%d\n", rec.qname, subnet_resp.Address, subnet_resp.SourceNetmask, subnet_resp.SourceScope)
@@ -350,4 +403,5 @@ func main() {
 	fmt.Printf("processed all %d jobs\n", numJobs)
 	//./dnsscan -server 8.8.8.8 -proto DoT -subnet 128.239.115.200  C:\Users\franc\Downloads\CSCI780_DSS\FinalProject\dnsclient-main\cloudflare-radar-domains-top-1000-20240401-20240408.csv
 	// ./dnsscan -server 8.8.8.8 -subnet 128.239.115.200 cloudflare-radar-domains-top-10000-20240415-20240422.csv
+	// ./dnsscan -num-workers 25 -subnet 128.239.115.200 cloudflare-radar-domains-top-10000-20240415-20240422.csv
 }
