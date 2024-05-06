@@ -384,9 +384,11 @@ func main() {
 			}
 			if !ok {
 				fmt.Printf("didn't get an OPT response from somebody, somehow\n")
+				writer.Write([]string{rec.qname, "true", rec.reply.Answer[0].String(), "None"})
 				continue
 			}
 
+			ok = false
 			for _, addl := range opt.Option {
 				subnet_resp, ok := addl.(*dns.EDNS0_SUBNET)
 				if ok {
@@ -394,6 +396,10 @@ func main() {
 					fmt.Printf("netmask: " + string(subnet_resp.SourceNetmask))
 					writer.Write([]string{rec.qname, "true", rec.reply.Answer[0].String(), fmt.Sprintf("%d", subnet_resp.SourceScope)})
 				}
+			}
+			if !ok {
+				fmt.Printf("%32s: no subnet response", rec.qname)
+				writer.Write([]string{rec.qname, "true", rec.reply.Answer[0].String(), "None"})
 			}
 		}
 
